@@ -394,14 +394,55 @@ async def gestion_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     agents = db.get_all_agents()
     texte = "👥 *GESTION DES ADMINISTRATEURS*\n\n"
+    
+    keyboard = []
     for a in agents:
         aid, nom, tid, role = a
         texte += f"• {nom or 'Sans nom'} (ID: {tid}) - {role}\n"
-    keyboard = [
-        [InlineKeyboardButton("➕ AJOUTER ADMIN", callback_data='ajouter_admin')],
-        [InlineKeyboardButton("🔙 RETOUR", callback_data='menu_principal')]
-    ]
+        keyboard.append([InlineKeyboardButton(f"🗑️ Supprimer {nom or tid}", callback_data=f'supprimer_admin_{aid}')])
+    
+    keyboard.append([InlineKeyboardButton("➕ AJOUTER ADMIN", callback_data='ajouter_admin')])
+    keyboard.append([InlineKeyboardButton("🔙 RETOUR", callback_data='menu_principal')])
+    
     await query.edit_message_text(texte, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+async def supprimer_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    aid = int(query.data.replace('supprimer_admin_', ''))
+    
+    # Récupérer les infos de l'admin depuis la base
+    # Note: il faut ajouter cette méthode dans database.py
+    # Pour l'instant on va juste demander confirmation avec l'ID
+    keyboard = [
+        [InlineKeyboardButton("✅ OUI", callback_data=f'confirmer_suppression_admin_{aid}'),
+         InlineKeyboardButton("❌ NON", callback_data='gestion_admins')]
+    ]
+    await query.edit_message_text(
+        f"⚠️ Confirmer la suppression de l'admin (ID {aid}) ?",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+async def confirmer_suppression_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    aid = int(query.data.replace('confirmer_suppression_admin_', ''))
+    
+    # Récupérer l'agent pour connaître son telegram_id
+    agent = db.get_agent_by_id(aid)
+    if agent:
+        tid = agent[2]  # telegram_id
+        # Supprimer de la base
+        db.supprimer_agent(aid)
+        # Retirer de ADMIN_IDS si présent
+        if tid in ADMIN_IDS:
+            ADMIN_IDS.remove(tid)
+    
+    await query.edit_message_text("✅ Admin supprimé avec succès.")
+    await gestion_admins(update, context)
 
 async def ajouter_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -545,6 +586,8 @@ def main():
     app.add_handler(CallbackQueryHandler(statistiques, pattern='^statistiques$'))
     app.add_handler(CallbackQueryHandler(gestion_admins, pattern='^gestion_admins$'))
     app.add_handler(CallbackQueryHandler(ajouter_admin, pattern='^ajouter_admin$'))
+    app.add_handler(CallbackQueryHandler(supprimer_admin, pattern='^supprimer_admin_'))
+    app.add_handler(CallbackQueryHandler(confirmer_suppression_admin, pattern='^confirmer_suppression_admin_'))
     app.add_handler(CallbackQueryHandler(ajouter_relance, pattern='^ajouter_relance_'))
     app.add_handler(CallbackQueryHandler(type_relance_choisi, pattern='^type_relance_'))
     app.add_handler(CallbackQueryHandler(marquer_relance_effectuee, pattern='^marquer_relance_'))
