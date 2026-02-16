@@ -250,3 +250,4 @@ class Database:
 
     def fermer(self):
         self.conn.close()
+
