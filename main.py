@@ -17,16 +17,8 @@ db = Database()
 for tid in ADMIN_IDS:
     db.ajouter_agent(tid)
 
-# ---------- Vérification admin ----------
-def est_admin(update: Update) -> bool:
-    return update.effective_user.id in ADMIN_IDS
-
 # ---------- Menu principal ----------
 async def menu_principal(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not est_admin(update):
-        await update.message.reply_text("⛔ Accès réservé aux administrateurs.")
-        return
-
     keyboard = [
         [InlineKeyboardButton("➕ NOUVEAU CLIENT", callback_data='nouveau_client')],
         [InlineKeyboardButton("📅 RELANCES AUJOURD'HUI", callback_data='relances_jour')],
@@ -46,8 +38,6 @@ async def menu_principal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- Ajout client ----------
 async def nouveau_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not est_admin(update):
-        return
     query = update.callback_query
     await query.answer()
     context.user_data.clear()
@@ -135,10 +125,6 @@ async def recevoir_destination(update: Update, context: ContextTypes.DEFAULT_TYP
     if texte.lower() != 'skip':
         context.user_data['client']['destination'] = texte
 
-    # Récupérer l'agent
-    agent = db.get_agent(update.effective_user.id)
-    agent_id = agent[0] if agent else None
-
     # Ajouter le client
     cid = db.ajouter_client(
         nom=context.user_data['client'].get('nom', ''),
@@ -147,11 +133,11 @@ async def recevoir_destination(update: Update, context: ContextTypes.DEFAULT_TYP
         source=context.user_data['client'].get('source', ''),
         type_demande=context.user_data['client'].get('type_demande', ''),
         destination=context.user_data['client'].get('destination', ''),
-        agent_id=agent_id
+        agent_id=None
     )
 
     # Ajouter dans l'historique
-    db.ajouter_historique(cid, "création", "Client créé", agent_id)
+    db.ajouter_historique(cid, "création", "Client créé", None)
 
     context.user_data['etape'] = None
     await update.message.reply_text(f"✅ Client ajouté avec succès ! ID: `{cid}`", parse_mode='Markdown')
@@ -161,8 +147,6 @@ async def recevoir_destination(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # ---------- Ajout de relance ----------
 async def ajouter_relance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not est_admin(update):
-        return
     query = update.callback_query
     await query.answer()
     cid = int(query.data.replace('ajouter_relance_', ''))
@@ -172,7 +156,7 @@ async def ajouter_relance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📅 Date précise", callback_data='type_relance_date')],
         [InlineKeyboardButton("⏱️ X jours avant une date", callback_data='type_relance_avant')],
-        [InlineKeyboardButton("🔙 RETOUR", callback_data=f'client_{cid}')]
+        [InlineKeyboardButton("🔙 RETOUR", callback_data=f'voir_client_{cid}')]
     ]
     await query.edit_message_text(
         "📅 *TYPE DE RELANCE*\n\nChoisissez le type :",
@@ -186,7 +170,7 @@ async def type_relance_choisi(update: Update, context: ContextTypes.DEFAULT_TYPE
     choix = query.data
     if choix == 'type_relance_date':
         context.user_data['type_relance'] = 'date_precise'
-        keyboard = [[InlineKeyboardButton("🔙 RETOUR", callback_data=f'ajouter_relance_{context.user_data["relance_client_id"]}')]]
+        keyboard = [[InlineKeyboardButton("🔙 RETOUR", callback_data=f'voir_client_{context.user_data["relance_client_id"]}')]]
         await query.edit_message_text(
             "📅 Envoyez la date précise (format JJ/MM/AAAA) :",
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -194,7 +178,7 @@ async def type_relance_choisi(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data['etape'] = 'date_precise'
     elif choix == 'type_relance_avant':
         context.user_data['type_relance'] = 'avant_date'
-        keyboard = [[InlineKeyboardButton("🔙 RETOUR", callback_data=f'ajouter_relance_{context.user_data["relance_client_id"]}')]]
+        keyboard = [[InlineKeyboardButton("🔙 RETOUR", callback_data=f'voir_client_{context.user_data["relance_client_id"]}')]]
         await query.edit_message_text(
             "⏱️ Envoyez le nombre de jours avant la date :",
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -212,9 +196,7 @@ async def recevoir_date_precise(update: Update, context: ContextTypes.DEFAULT_TY
         return
     cid = context.user_data['relance_client_id']
     rid = db.ajouter_relance(cid, date_texte, 'date_precise')
-    agent = db.get_agent(update.effective_user.id)
-    agent_id = agent[0] if agent else None
-    db.ajouter_historique(cid, "relance ajoutée", f"Relance programmée au {date_texte}", agent_id)
+    db.ajouter_historique(cid, "relance ajoutée", f"Relance programmée au {date_texte}", None)
     await update.message.reply_text(f"✅ Relance ajoutée pour le {date_texte}")
     await afficher_client(update, context, cid)
 
@@ -228,7 +210,7 @@ async def recevoir_nb_jours_avant(update: Update, context: ContextTypes.DEFAULT_
         return
     context.user_data['nb_jours_avant'] = nb_jours
     context.user_data['etape'] = 'date_reference'
-    keyboard = [[InlineKeyboardButton("🔙 RETOUR", callback_data=f'ajouter_relance_{context.user_data["relance_client_id"]}')]]
+    keyboard = [[InlineKeyboardButton("🔙 RETOUR", callback_data=f'voir_client_{context.user_data["relance_client_id"]}')]]
     await update.message.reply_text(
         f"📅 Envoyez la *date de référence* (JJ/MM/AAAA) :",
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -248,9 +230,7 @@ async def recevoir_date_reference(update: Update, context: ContextTypes.DEFAULT_
     date_relance = (date_ref - timedelta(days=nb_jours)).strftime('%d/%m/%Y')
     cid = context.user_data['relance_client_id']
     rid = db.ajouter_relance(cid, date_relance, f"{nb_jours}j avant")
-    agent = db.get_agent(update.effective_user.id)
-    agent_id = agent[0] if agent else None
-    db.ajouter_historique(cid, "relance ajoutée", f"Relance programmée {nb_jours} jours avant le {date_texte}", agent_id)
+    db.ajouter_historique(cid, "relance ajoutée", f"Relance programmée {nb_jours} jours avant le {date_texte}", None)
     await update.message.reply_text(f"✅ Relance ajoutée pour le {date_relance}")
     await afficher_client(update, context, cid)
 
@@ -295,22 +275,22 @@ async def afficher_client(update: Update, context: ContextTypes.DEFAULT_TYPE, cl
 
 # ---------- Relances du jour ----------
 async def relances_jour(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not est_admin(update):
-        return
     query = update.callback_query
     await query.answer()
     relances = db.get_relances_du_jour()
     if not relances:
         await query.edit_message_text("✅ Aucune relance aujourd'hui.")
+        keyboard = [[InlineKeyboardButton("🔙 RETOUR", callback_data='menu_principal')]]
+        await query.message.reply_text("Retour au menu ?", reply_markup=InlineKeyboardMarkup(keyboard))
         return
-    texte = "📅 *RELANCES AUJOURD'HUI*\n\n"
+
     for r in relances:
         rid, cid, date_r, type_r, priorite, statut_r, notes, date_c, date_e, resultat, nom = r
         emoji = "🔴" if priorite == 'urgent' else "🟡" if priorite == 'haute' else "🟢"
-        texte += f"{emoji} *{nom}* - {type_r}\n"
+        texte = f"{emoji} *{nom}* - {type_r}\n"
         keyboard = [[InlineKeyboardButton("✅ MARQUER EFFECTUÉE", callback_data=f'marquer_relance_{rid}_{cid}')]]
         await query.message.reply_text(texte, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        texte = ""
+
     keyboard = [[InlineKeyboardButton("🔙 RETOUR", callback_data='menu_principal')]]
     await query.message.reply_text("Retour au menu ?", reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -326,34 +306,35 @@ async def marquer_relance_effectuee(update: Update, context: ContextTypes.DEFAUL
 
 # ---------- Relances en retard ----------
 async def relances_retard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not est_admin(update):
-        return
     query = update.callback_query
     await query.answer()
     relances = db.get_relances_en_retard()
     if not relances:
         await query.edit_message_text("✅ Aucune relance en retard.")
+        keyboard = [[InlineKeyboardButton("🔙 RETOUR", callback_data='menu_principal')]]
+        await query.message.reply_text("Retour au menu ?", reply_markup=InlineKeyboardMarkup(keyboard))
         return
-    texte = "⚠️ *RELANCES EN RETARD*\n\n"
+
     for r in relances:
         rid, cid, date_r, type_r, priorite, statut_r, notes, date_c, date_e, resultat, nom = r
-        texte += f"🔴 *{nom}* - Prévue le {date_r}\n"
+        texte = f"🔴 *{nom}* - Prévue le {date_r}\n"
         keyboard = [[InlineKeyboardButton("✅ MARQUER EFFECTUÉE", callback_data=f'marquer_relance_{rid}_{cid}')]]
         await query.message.reply_text(texte, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        texte = ""
+
     keyboard = [[InlineKeyboardButton("🔙 RETOUR", callback_data='menu_principal')]]
     await query.message.reply_text("Retour au menu ?", reply_markup=InlineKeyboardMarkup(keyboard))
 
 # ---------- Prochains 7 jours ----------
 async def relances_7j(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not est_admin(update):
-        return
     query = update.callback_query
     await query.answer()
     relances = db.get_relances_a_venir(7)
     if not relances:
         await query.edit_message_text("✅ Aucune relance dans les 7 prochains jours.")
+        keyboard = [[InlineKeyboardButton("🔙 RETOUR", callback_data='menu_principal')]]
+        await query.message.reply_text("Retour au menu ?", reply_markup=InlineKeyboardMarkup(keyboard))
         return
+
     texte = "📋 *RELANCES À VENIR (7j)*\n\n"
     for r in relances:
         rid, cid, date_r, type_r, priorite, statut_r, notes, date_c, date_e, resultat, nom = r
@@ -364,8 +345,6 @@ async def relances_7j(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- Recherche ----------
 async def rechercher(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not est_admin(update):
-        return
     query = update.callback_query
     await query.answer()
     context.user_data['etape'] = 'recherche'
@@ -398,13 +377,9 @@ async def voir_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- Statistiques ----------
 async def statistiques(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not est_admin(update):
-        return
     query = update.callback_query
     await query.answer()
-    agent = db.get_agent(update.effective_user.id)
-    agent_id = agent[0] if agent else None
-    stats = db.get_statistiques(agent_id)
+    stats = db.get_statistiques()
     texte = "📊 *STATISTIQUES*\n\n"
     texte += f"📈 Convertis ce mois : {stats['convertis_mois']}\n"
     texte += f"⏳ Clients en cours : {stats['en_cours']}\n"
@@ -415,8 +390,6 @@ async def statistiques(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------- Gestion des admins ----------
 async def gestion_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not est_admin(update):
-        return
     query = update.callback_query
     await query.answer()
     agents = db.get_all_agents()
@@ -431,8 +404,6 @@ async def gestion_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(texte, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def ajouter_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not est_admin(update):
-        return
     query = update.callback_query
     await query.answer()
     context.user_data['etape'] = 'nouvel_admin_id'
@@ -466,7 +437,7 @@ async def recevoir_nouvel_admin_nom(update: Update, context: ContextTypes.DEFAUL
         nom = ''
     tid = context.user_data['nouvel_admin_id']
     db.ajouter_agent(tid, nom)
-    # Ajouter aussi dans la liste des admins pour les vérifications (à la prochaine connexion)
+    # Ajouter aussi dans la liste des admins pour les vérifications
     if tid not in ADMIN_IDS:
         ADMIN_IDS.append(tid)
     context.user_data['etape'] = None
