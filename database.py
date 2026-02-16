@@ -80,9 +80,17 @@ class Database:
         self.c.execute('SELECT * FROM agents WHERE telegram_id = ?', (telegram_id,))
         return self.c.fetchone()
 
+    def get_agent_by_id(self, agent_id):
+        self.c.execute('SELECT * FROM agents WHERE id = ?', (agent_id,))
+        return self.c.fetchone()
+
     def get_all_agents(self):
         self.c.execute('SELECT * FROM agents')
         return self.c.fetchall()
+
+    def supprimer_agent(self, agent_id):
+        self.c.execute('DELETE FROM agents WHERE id = ?', (agent_id,))
+        self.conn.commit()
 
     # ----- Gestion des clients -----
     def ajouter_client(self, nom, telephone='', email='', source='', type_demande='', destination='', agent_id=None):
@@ -264,7 +272,6 @@ class Database:
 
         return stats
 
+    # ----- Fermeture -----
     def fermer(self):
         self.conn.close()
-
-
