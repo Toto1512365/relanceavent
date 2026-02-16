@@ -210,28 +210,41 @@ class Database:
         if agent_id:
             self.c.execute('''
                 SELECT COUNT(*) FROM clients
-                WHERE statut = 'converti' AND date_creation >= ? AND agent_id = ?
+                WHERE statut = "converti" AND date_creation >= ? AND agent_id = ?
             ''', (debut_mois, agent_id))
         else:
-            self.c.execute('SELECT COUNT(*) FROM clients WHERE statut = 'converti' AND date_creation >= ?', (debut_mois,))
+            self.c.execute('''
+                SELECT COUNT(*) FROM clients
+                WHERE statut = "converti" AND date_creation >= ?
+            ''', (debut_mois,))
         stats['convertis_mois'] = self.c.fetchone()[0]
 
         # Clients en cours
         if agent_id:
-            self.c.execute('SELECT COUNT(*) FROM clients WHERE statut = 'en_cours' AND agent_id = ?', (agent_id,))
+            self.c.execute('''
+                SELECT COUNT(*) FROM clients
+                WHERE statut = "en_cours" AND agent_id = ?
+            ''', (agent_id,))
         else:
-            self.c.execute('SELECT COUNT(*) FROM clients WHERE statut = 'en_cours'')
+            self.c.execute('''
+                SELECT COUNT(*) FROM clients
+                WHERE statut = "en_cours"
+            ''')
         stats['en_cours'] = self.c.fetchone()[0]
 
         # Relances en retard
+        aujourd_hui = datetime.now().strftime('%d/%m/%Y')
         if agent_id:
             self.c.execute('''
                 SELECT COUNT(*) FROM relances r
                 JOIN clients c ON r.client_id = c.id
-                WHERE r.date_relance < date('now') AND r.statut = 'programmee' AND c.agent_id = ?
-            ''', (agent_id,))
+                WHERE r.date_relance < ? AND r.statut = "programmee" AND c.agent_id = ?
+            ''', (aujourd_hui, agent_id))
         else:
-            self.c.execute('SELECT COUNT(*) FROM relances WHERE date_relance < date('now') AND statut = 'programmee'')
+            self.c.execute('''
+                SELECT COUNT(*) FROM relances
+                WHERE date_relance < ? AND statut = "programmee"
+            ''', (aujourd_hui,))
         stats['retard'] = self.c.fetchone()[0]
 
         # Relances aujourd'hui
@@ -240,14 +253,18 @@ class Database:
             self.c.execute('''
                 SELECT COUNT(*) FROM relances r
                 JOIN clients c ON r.client_id = c.id
-                WHERE r.date_relance = ? AND r.statut = 'programmee' AND c.agent_id = ?
+                WHERE r.date_relance = ? AND r.statut = "programmee" AND c.agent_id = ?
             ''', (aujourd_hui, agent_id))
         else:
-            self.c.execute('SELECT COUNT(*) FROM relances WHERE date_relance = ? AND statut = 'programmee'', (aujourd_hui,))
+            self.c.execute('''
+                SELECT COUNT(*) FROM relances
+                WHERE date_relance = ? AND statut = "programmee"
+            ''', (aujourd_hui,))
         stats['aujourd_hui'] = self.c.fetchone()[0]
 
         return stats
 
     def fermer(self):
         self.conn.close()
+
 
